@@ -10,7 +10,7 @@ classdef WSPcgNwtn < handle
 		end
 
 		% Backtracking linesearch
-		function [new_x,f1,act_step] = linesearch_bt(this, obj, jobj_val, f0, cur_x, x_step)
+		function [new_x,f1,act_step,slen] = linesearch_bt(this, obj, jobj_val, f0, cur_x, x_step)
 			fdiff = jobj_val * x_step;
 			slen  = 1;
 
@@ -46,6 +46,9 @@ classdef WSPcgNwtn < handle
 			fval     = obj(cur_x);
 			jobj_val = jobj(cur_x);
 
+			% Steepest descent steplength multiplier
+			sd_slen = 1;
+
 			% Main loop. We have a maximum iteration limit.
 			for iter = 1:1000
 				% Compute the Newton system right hand side
@@ -55,12 +58,22 @@ classdef WSPcgNwtn < handle
 				% just use a steepest descent step.
 				pcg_tol = sqrt(eps);
 				x_step = this.ws_pcg.solve(@(v) hMult(cur_x, v), Nrhs, hDiag(cur_x), pcg_tol);
-				if isempty(x_step)
-					x_step = Nrhs;
+				is_sdstep = isempty(x_step);
+				if is_sdstep
+					x_step = sd_slen * Nrhs;
 				end
 
 				% Line search!
-				[cur_x, fval, x_step] = this.linesearch_bt(obj, jobj_val, fval, cur_x, x_step);
+				[cur_x, fval, x_step, slen] = this.linesearch_bt(obj, jobj_val, fval, cur_x, x_step);
+
+				% Update the steepest descent step length if this was a steepest descent step
+				if is_sdstep
+					if slen >= 1
+						sd_slen = 2 * sd_slen
+					else
+						sd_slen = slen * sd_slen
+					end
+				end
 
 				% Compute the new jacobian value, then check our termination condition
 				jobj_new = jobj(cur_x);
