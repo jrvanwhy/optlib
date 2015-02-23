@@ -98,13 +98,14 @@ classdef WSPCG < handle
 		function upPrecond(this, MDiag)
 			% Use the L-BFGS diagonal to fix the nonpositive entries of MDiag (if present),
 			% unless this is the first solution, in which case we just set the nonpositive entries to 1
-			if isempty(this.precond)
+			mDiagNonpos = MDiag <= 0;
+			if isempty(this.precond) && any(mDiagNonpos)
 				% No existing preconditioner, set nonpositive entries to 1
-				MDiag(MDiag <= 0) = 1;
+				MDiag(mDiagNonpos) = 1;
 			else
 				% A preconditioner exists.
-				pDiag             = this.precond.getDiag;
-				MDiag(MDiag <= 0) = pDiag(pDiag <= 0);
+				pDiag              = this.precond.getDiag;
+				MDiag(mDiagNonpos) = pDiag(mDiagNonpos);
 			end
 
 			% Initialize the preconditioner using our adjusted diagonal.
