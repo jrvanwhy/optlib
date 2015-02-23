@@ -54,10 +54,14 @@ classdef WSPcgNwtn < handle
 				% Compute the Newton system right hand side
 				Nrhs = -jobj_val(:);
 
+				% Compute the diagonal elements of the Hessian
+				hDiagVals = hDiag(cur_x);
+				hDiagVals(hDiagVals <= 0) = sqrt(eps);
+
 				% Try to solve it. If the solution fails,
 				% just use a steepest descent step.
 				pcg_tol = sqrt(eps);
-				x_step = this.ws_pcg.solve(@(v) hMult(cur_x, v), Nrhs, hDiag(cur_x), pcg_tol);
+				x_step = this.ws_pcg.solve(@(v) hMult(cur_x, v), Nrhs, hDiagVals, pcg_tol);
 				is_sdstep = isempty(x_step);
 				if is_sdstep
 					x_step = sd_slen * Nrhs;
@@ -69,9 +73,9 @@ classdef WSPcgNwtn < handle
 				% Update the steepest descent step length if this was a steepest descent step
 				if is_sdstep
 					if slen >= 1
-						sd_slen = 2 * sd_slen
+						sd_slen = 2 * sd_slen;
 					else
-						sd_slen = slen * sd_slen
+						sd_slen = slen * sd_slen;
 					end
 				end
 
