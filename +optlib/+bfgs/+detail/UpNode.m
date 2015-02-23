@@ -1,12 +1,17 @@
 classdef UpNode < handle
 	methods
-		function this = UpNode(oldTree, x, Mx)
+		function this = UpNode(oldTree, x, Mx, dotP)
 			this.oldTree = oldTree;
 			this.x       = x;
 			this.Mx      = Mx;
-			this.MxT_x   = Mx.' * x;
 			this.Bx      = oldTree * x;
 			this.xT_Bx   = x.' * this.Bx;
+
+			if nargin < 4 || isempty(dotP)
+				this.MxT_x = Mx.' * x;
+			else
+				this.MxT_x = dotP;
+			end
 		end
 
 		function out = mldivide(this, vec)
