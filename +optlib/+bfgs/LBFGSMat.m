@@ -12,8 +12,8 @@ classdef LBFGSMat < handle
 			out = this.matTree * vec;
 		end
 
-		function addUpdate(this, x, Mx)
-			this.matTree = optlib.bfgs.detail.UpNode(this.matTree, x, Mx);
+		function addUpdate(this, x, Mx, varargin)
+			this.matTree = optlib.bfgs.detail.UpNode(this.matTree, x, Mx, varargin{:});
 		end
 	end
 

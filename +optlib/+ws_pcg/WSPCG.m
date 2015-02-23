@@ -42,7 +42,7 @@ classdef WSPCG < handle
 			if isempty(this.precond) || ~isempty(this.pcache_x)
 				this.precond = optlib.bfgs.LBFGSMat(MDiag);
 				for iter = 1:size(this.pcache_x, 2)
-					this.precond.addUpdate(this.pcache_x(:, iter), this.pcache_Mx(:, iter))
+					this.precond.addUpdate(this.pcache_x(:, iter), this.pcache_Mx(:, iter), this.pcache_dotP(:, iter))
 				end
 
 				% Empty the preconditioner cache
