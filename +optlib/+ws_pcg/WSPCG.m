@@ -30,6 +30,10 @@ classdef WSPCG < handle
 			RdotP = dot(Mres, Pres);     % Dot product of the residuals
 			x     = zeros(numel(b), 1);  % The solution vector.
 
+			% Update the tolerance to make it scale-invariant
+			% Yup, I'm copying Eigen here...
+			tol = tol*tol * dot(b, b);
+
 			% Loop up to N times, where N is the size of the system to be solved.
 			% In exact arithmetic, this would solve it exactly
 			for iter = 1:numel(b)
@@ -39,7 +43,7 @@ classdef WSPCG < handle
 				Mres    = Mres - alpha * M_sdir;     % Update the residual
 
 				% Check our termination condition
-				if dot(Mres, Mres) <= tol^2
+				if dot(Mres, Mres) <= tol
 					break
 				end
 
