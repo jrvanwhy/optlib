@@ -30,7 +30,7 @@ classdef WSPCG < handle
 		% Parameters:
 		%     MxFcn Matrix-vector multiply function for the coefficient matrix
 		%     b     Rhs of the linear system
-		%     MDiag Diagonal of the coefficient matrix
+		%     MDiag Diagonal of the coefficient matrix. May be empty if restarting after a failed first iteration
 		%     tol   Convergence tolerance; is finished when |r|_2 <= tol
 		%
 		% Returns:
@@ -75,6 +75,11 @@ classdef WSPCG < handle
 
 				% Check for nonpositive curvature and abort if it was detected
 				if MxT_x <= 0
+					% Don't return a solution if this was the first iteration, as no improvement has occurred.
+					if iter <= 1
+						x = [];
+					end
+
 					break
 				end
 
