@@ -14,7 +14,7 @@ classdef WSPcgNwtn < handle
 			fdiff = jobj_val * x_step;
 			slen  = 1;
 
-			for iter = 1:10
+			for iter = 1:20
 				act_step = slen * x_step;
 				new_x = cur_x + act_step;
 				f1    = obj(new_x);
