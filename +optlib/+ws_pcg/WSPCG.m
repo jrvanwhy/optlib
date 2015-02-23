@@ -35,9 +35,8 @@ classdef WSPCG < handle
 		%
 		% Returns:
 		%     x       The approximate solution to the system.
-		%     mindotP The minimum dot(x, M*x) value observed, (normalized by dividing by dot(x, x)). Adding a*I to M will increase this by a (roughly)
 		%
-		function [x,mindotP] = solve(this, MxFcn, b, MDiag, tol)
+		function x = solve(this, MxFcn, b, MDiag, tol)
 			% Build the preconditioner, if cached values are available (or there's no preconditioner yet).
 			if isempty(this.precond) || ~isempty(this.pcache_x)
 				this.precond = optlib.bfgs.LBFGSMat(MDiag);
@@ -61,17 +60,11 @@ classdef WSPCG < handle
 			% Yup, I'm copying Eigen here...
 			tol = tol*tol * dot(b, b);
 
-			% Minimum observed dot product -- start as infinity so we're guaranteed to update on the first iteration
-			mindotP = inf;
-
 			% Loop up to N times, where N is the size of the system to be solved.
 			% In exact arithmetic, this would solve it exactly
 			for iter = 1:numel(b)
 				M_sdir  = MxFcn(sdir);     % Compute the M * step direction product
 				MxT_x   = sdir.' * M_sdir; % Dot product of step and M * step, copied for the bfgs update
-
-				% Update our minimum seen dot product output
-				mindotP = min(mindotP, MxT_x/dot(sdir, sdir));
 
 				% Check for nonpositive curvature and abort if it was detected
 				if MxT_x <= 0
