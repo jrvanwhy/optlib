@@ -5,10 +5,20 @@
 
 classdef WSPCG < handle
 	methods
-		% Adds in a preconditioner update pair
+		% Adds in a preconditioner update pair.
+		% This will check if the update is valid (dot(x, Mx) > 0)
+		% and ignore the pair if not
 		function addPUpdate(this, x, Mx)
-			this.pcache_x(:,  end+1) = x;
-			this.pcache_Mx(:, end+1) = Mx;
+			dotP = dot(x, Mx);
+
+			% Abort if not an acceptable update
+			if dotP <= 0
+				return
+			end
+
+			this.pcache_x(   :, end+1) = x;
+			this.pcache_Mx(  :, end+1) = Mx;
+			this.pcache_dotP(:, end+1) = dotP;
 		end
 
 		% This function solves the linear system to the given tolerance.
