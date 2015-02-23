@@ -71,7 +71,7 @@ classdef WSPcgNwtn < handle
 				pcg_tol = sqrt(eps);
 				[x_step, mindotP] = this.ws_pcg.solve(@this.hMult_adj, Nrhs, hDiag_val, pcg_tol);
 				this.up_cvture(mindotP);
-				if mindotP <= 0
+				if isempty(x_step)
 					[x_step, mindotP] = this.ws_pcg.solve(@this.hMult_adj, Nrhs, hDiag_val, pcg_tol);
 					this.up_cvture(mindotP);
 				end
@@ -83,7 +83,7 @@ classdef WSPcgNwtn < handle
 				jobj_new = jobj(this.cur_x);
 				if norm(jobj_new) < sqrt(eps)
 					soln = this.cur_x;
-					return
+					break
 				end
 
 				% Give the preconditioner a newer hint...
@@ -92,6 +92,8 @@ classdef WSPcgNwtn < handle
 				% Copy over the new jacobian value because we don't need the old one any more
 				jobj_val = jobj_new;
 			end
+
+			disp(['Iterations: ' num2str(iter)])
 		end
 
 		% Curvature update function
