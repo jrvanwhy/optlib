@@ -26,29 +26,20 @@ classdef WSPCG < handle
 		% The exact algorithm used is the preconditioned conjugate gradient algorithm
 		% off Wikipedia, which was chosen because it exactly matches the algorithm in
 		% Eigen's ConjugateGradient implementation.
+		% Note that this will deal any nonpositive entries of MDiag for the user,
+		% and if the first step fails it will do a L-BFGS step instead.
 		%
 		% Parameters:
-		%     MxFcn Matrix-vector multiply function for the coefficient matrix
-		%     b     Rhs of the linear system
-		%     MDiag Diagonal of the coefficient matrix. May be empty if restarting after a failed first iteration
-		%     tol   Convergence tolerance; is finished when |r|_2 <= tol
+		%     MxFcn  Matrix-vector multiply function for the coefficient matrix
+		%     b      Rhs of the linear system
+		%     MDiag  Diagonal of the coefficient matrix. May be empty if restarting after a failed first iteration
+		%     tol    Convergence tolerance; is finished when |r|_2 <= tol
 		%
 		% Returns:
-		%     x       The approximate solution to the system.
+		%     x      The approximate solution to the system.
 		%
 		function x = solve(this, MxFcn, b, MDiag, tol)
-			% Build the preconditioner, if cached values are available (or there's no preconditioner yet).
-			if isempty(this.precond) || ~isempty(this.pcache_x)
-				this.precond = optlib.bfgs.LBFGSMat(MDiag);
-				for iter = 1:size(this.pcache_x, 2)
-					this.precond.addUpdate(this.pcache_x(:, iter), this.pcache_Mx(:, iter), this.pcache_dotP(:, iter))
-				end
-
-				% Empty the preconditioner cache
-				this.pcache_x    = [];
-				this.pcache_Mx   = [];
-				this.pcache_dotP = [];
-			end
+			this.upPrecond(MDiag);
 
 			Mres  = b;                   % Residual of the original system
 			Pres  = this.precond \ Mres; % Residual of the preconditioned system
@@ -68,9 +59,10 @@ classdef WSPCG < handle
 
 				% Check for nonpositive curvature and abort if it was detected
 				if MxT_x <= 0
-					% Don't return a solution if this was the first iteration, as no improvement has occurred.
+					% If this was the first iteration, just use the preconditioner
+					% to solve for x
 					if iter <= 1
-						x = [];
+						x = Pres;
 					end
 
 					break
@@ -100,6 +92,33 @@ classdef WSPCG < handle
 				beta     = RdotP / oldRdotP;
 				sdir     = Pres + beta * sdir;
 			end
+		end
+
+		% This handles the adjustment & updating of the preconditioner
+		function upPrecond(this, MDiag)
+			% Use the L-BFGS diagonal to fix the nonpositive entries of MDiag (if present),
+			% unless this is the first solution, in which case we just set the nonpositive entries to 1
+			if isempty(this.precond)
+				% No existing preconditioner, set nonpositive entries to 1
+				MDiag(MDiag <= 0) = 1;
+			else
+				% A preconditioner exists.
+				pDiag             = this.precond.getDiag;
+				MDiag(MDiag <= 0) = pDiag(pDiag <= 0);
+			end
+
+			% Initialize the preconditioner using our adjusted diagonal.
+			this.precond = optlib.bfgs.LBFGSMat(MDiag);
+
+			% Create updates using the cached values.
+			for iter = 1:size(this.pcache_x, 2)
+				this.precond.addUpdate(this.pcache_x(:, iter), this.pcache_Mx(:, iter), this.pcache_dotP(:, iter))
+			end
+
+			% Empty the preconditioner cache for next time.
+			this.pcache_x    = [];
+			this.pcache_Mx   = [];
+			this.pcache_dotP = [];
 		end
 	end
 

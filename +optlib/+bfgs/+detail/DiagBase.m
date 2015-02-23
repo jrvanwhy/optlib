@@ -4,6 +4,10 @@ classdef DiagBase < handle
 			this.diag_vals = diag_vals(:);
 		end
 
+		function vals = getDiag(this)
+			vals = this.diag_vals;
+		end
+
 		function out = mldivide(this, vec)
 			out = vec ./ this.diag_vals;
 		end

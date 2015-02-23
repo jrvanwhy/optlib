@@ -15,6 +15,10 @@ classdef LBFGSMat < handle
 		function addUpdate(this, x, Mx, varargin)
 			this.matTree = optlib.bfgs.detail.UpNode(this.matTree, x, Mx, varargin{:});
 		end
+
+		function vals = getDiag(this)
+			vals = this.matTree.getDiag();
+		end
 	end
 
 	properties
