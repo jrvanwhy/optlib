@@ -16,5 +16,10 @@ function soln = sym_minunc(obj, sym_x, x0)
 
 	% Create and call the solver
 	solver = optlib.minunc.WSPcgNwtn;
+	startTime = tic;
 	soln = solver.solve(obj_fcn, jobj_fcn, hMult_fcn, hDiag_fcn, x0);
+	solveTime = toc(startTime);
+
+	% Spit out the timing information
+	disp(['Solve time: ' num2str(solveTime) ' seconds.'])
 end
