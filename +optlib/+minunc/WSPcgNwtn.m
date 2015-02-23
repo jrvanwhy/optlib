@@ -56,7 +56,7 @@ classdef WSPcgNwtn < handle
 
 				% Compute the diagonal elements of the Hessian
 				hDiagVals = hDiag(cur_x);
-				hDiagVals(hDiagVals <= 0) = sqrt(eps);
+				hDiagVals(hDiagVals <= 0) = 1;
 
 				% Try to solve it. If the solution fails,
 				% just use a steepest descent step.
