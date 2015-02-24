@@ -6,7 +6,8 @@ classdef WSPcgNwtn < handle
 	methods
 		% Constructor. Just initializes things.
 		function this = WSPcgNwtn
-			this.ws_pcg = optlib.ws_pcg.WSPCG;
+			this.ws_pcg            = optlib.ws_pcg.WSPCG;
+			this.ws_pcg.dbg_indent = 4;
 		end
 
 		% Backtracking linesearch
@@ -43,25 +44,35 @@ classdef WSPcgNwtn < handle
 			cur_x = x0;
 
 			% Initialize the function value and its jacobian
-			fval     = obj(cur_x);
-			jobj_val = jobj(cur_x);
+			fval        = obj(cur_x);
+			jobj_val    = jobj(cur_x);
+			jobj_nrmsqr = dot(jobj_val, jobj_val);
+
+			% The tolerance for the PCG-based subproblem solver
+			pcg_tol = .1;
 
 			% Main loop. We have a maximum iteration limit.
 			for iter = 1:1000
 				% Compute the Newton system right hand side
 				Nrhs = -jobj_val(:);
 
+				% Set up the parameters for the PCG solution
+				pcg_maxiter = numel(cur_x);
+				if iter == 1 && this.ws_pcg.lbfgs_mem > 1
+					pcg_maxiter = this.ws_pcg.lbfgs_mem - 1;
+				end
+
 				% Try to solve it. If the solution fails,
 				% just use a steepest descent step.
-				pcg_tol = sqrt(eps);
-				x_step = this.ws_pcg.solve(@(v) hMult(cur_x, v), Nrhs, hDiag(cur_x), pcg_tol);
+				x_step = this.ws_pcg.solve(@(v) hMult(cur_x, v), Nrhs, hDiag(cur_x), pcg_tol, pcg_maxiter);
 
 				% Line search!
 				[cur_x, fval, x_step, slen] = this.linesearch_bt(obj, jobj_val, fval, cur_x, x_step);
 
 				% Compute the new jacobian value, then check our termination condition
-				jobj_new = jobj(cur_x);
-				if norm(jobj_new) < sqrt(eps)
+				jobj_new        = jobj(cur_x);
+				jobj_nrmsqr_new = dot(jobj_new, jobj_new);
+				if jobj_nrmsqr_new < eps
 					soln = cur_x;
 					break
 				end
@@ -69,11 +80,13 @@ classdef WSPcgNwtn < handle
 				% Give the preconditioner a newer hint...
 				this.ws_pcg.addPUpdate(x_step, jobj_new - jobj_val);
 
-				% Copy over the new jacobian value because we don't need the old one any more
-				jobj_val = jobj_new;
-			end
+				% Use the decrease in Jacobian to compute a new PCG solver tolerance
+				pcg_tol = min(max(jobj_nrmsqr_new / jobj_nrmsqr, sqrt(eps)), .1);
 
-			disp(['Iterations: ' num2str(iter)])
+				% Copy over the new jacobian-related values for the next iteration
+				jobj_val    = jobj_new;
+				jobj_nrmsqr = jobj_nrmsqr_new;
+			end
 		end
 	end
 

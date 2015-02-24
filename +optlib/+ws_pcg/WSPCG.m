@@ -30,15 +30,16 @@ classdef WSPCG < handle
 		% and if the first step fails it will do a L-BFGS step instead.
 		%
 		% Parameters:
-		%     MxFcn  Matrix-vector multiply function for the coefficient matrix
-		%     b      Rhs of the linear system
-		%     MDiag  Diagonal of the coefficient matrix. May be empty if restarting after a failed first iteration
-		%     tol    Convergence tolerance; is finished when |r|_2 <= tol
+		%     MxFcn   Matrix-vector multiply function for the coefficient matrix
+		%     b       Rhs of the linear system
+		%     MDiag   Diagonal of the coefficient matrix. May be empty if restarting after a failed first iteration
+		%     tol     Convergence tolerance; is finished when |r|_2 <= tol (relative)
+		%     maxIter The maximum PCG iteration count.
 		%
 		% Returns:
 		%     x      The approximate solution to the system.
 		%
-		function x = solve(this, MxFcn, b, MDiag, tol)
+		function x = solve(this, MxFcn, b, MDiag, tol, maxIter)
 			this.upPrecond(MDiag);
 
 			Mres  = b;                   % Residual of the original system
@@ -49,11 +50,15 @@ classdef WSPCG < handle
 
 			% Update the tolerance to make it scale-invariant
 			% Yup, I'm copying Eigen here...
-			tol = tol*tol * dot(b, b);
+			tol = tol * norm(b);
+
+			% Diagnostic information for the user
+			indentStr = repmat(' ', 1, this.dbg_indent);
+			fprintf('\n%sIteration    LBFGSCache    norm(res)    tolerance\n', indentStr)
 
 			% Loop up to N times, where N is the size of the system to be solved.
 			% In exact arithmetic, this would solve it exactly
-			for iter = 1:numel(b)
+			for iter = 1:maxIter
 				M_sdir  = MxFcn(sdir);     % Compute the M * step direction product
 				MxT_x   = sdir.' * M_sdir; % Dot product of step and M * step, copied for the bfgs update
 
@@ -73,15 +78,25 @@ classdef WSPCG < handle
 				Mres    = Mres - alpha * M_sdir; % Update the residual
 
 				% Cache things for the next L-BFGS update, if we're not already at the memory limit
-				lbfgs_mem = 10;
-				if size(this.pcache_x, 2) < lbfgs_mem-1 % Note that we save 1 update for the delta-gradients update before the next solve
+				if size(this.pcache_x, 2) < this.lbfgs_mem-1 % Note that we save 1 update for the delta-gradients update before the next solve
 					this.pcache_x(   :, end+1) = sdir;
 					this.pcache_Mx(  :, end+1) = M_sdir;
 					this.pcache_dotP(:, end+1) = MxT_x;
 				end
 
+				% Compute the residual norm for diagnostics and termination checking
+				MresNrm = norm(Mres);
+
+				% Output the diagnostic information
+				fprintf('%s%9u    %10u    %9.3e    %9.3e\n', ...
+				        indentStr,                           ...
+				        size(this.pcache_x, 2),              ...
+				        iter,                                ...
+				        MresNrm,                             ...
+				        tol)
+
 				% Check our termination condition
-				if dot(Mres, Mres) <= tol
+				if MresNrm <= tol
 					break
 				end
 
@@ -127,6 +142,10 @@ classdef WSPCG < handle
 	end
 
 	properties
+		% Configuration parameters
+		lbfgs_mem  = 10; % The maximum size of the LBFGS memory
+		dbg_indent =  0; % Indentation level for diagnostic output
+
 		% The preconditioner itself
 		precond
 
