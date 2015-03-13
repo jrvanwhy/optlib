@@ -54,3 +54,16 @@ optim = FeasSolver(prob);
 optim.export
 optim.solve
 assert(all(abs(x.solution - 1) < sqrt(eps)))
+
+%% Test 6: First general inequality-constrained problem
+clear all
+prob = Nlp;
+x    = prob.addVariable(0, -inf, inf);
+y    = prob.addVariable(0, -inf, inf);
+prob.addConstraint(0,    x,     inf)
+prob.addConstraint(-inf, x + y,  -1)
+optim = FeasSolver(prob);
+optim.export
+optim.solve
+assert(x.solution >= 0)
+assert(x.solution + y.solution <= -1)

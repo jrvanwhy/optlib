@@ -1,7 +1,6 @@
 % COALESCE interface for solving feasibility problems.
 %
 % TODO:
-%     * Inequality constraints (other than bounds)
 %     * Robustness (i.e. nonfinite constraint values)
 
 classdef FeasSolver < Solver
@@ -16,7 +15,7 @@ classdef FeasSolver < Solver
 			disp('Exporting FeasSolver functions')
 
 			% Clear out old functions so that MATLAB will recognize our new ones
-			clear feasCeq feasJCeq
+			clear feasCeq feasJCeq feasC feasJC
 
 			% These are used repeatedly later
 			nVars = this.nlp.numberOfVariables;
@@ -52,6 +51,38 @@ classdef FeasSolver < Solver
 			gen.writeExpression(sJeq, 'sJeq')
 			fprintf(gen.fid, '\tjceq = sparse(iJeq, jJeq, sJeq, %d, %d);\n', nVars, sum([ceq.length]));
 			gen.writeFooter
+
+			% Generate the inequality constraints functions. This is similar to the equality constraint export above
+			% First, check for a lack of inequality constraints (again, we need to special case if there are no inequality constraints)
+			if any(~conIsEq)
+				ineqCons = this.nlp.constraint(~conIsEq);
+				c        = [];
+				for iter = 1:nnz(~conIsEq)
+					if isfinite(ineqCons(iter).lowerBound)
+						c = [ c; ineqCons(iter).lowerBound - ineqCons(iter).expression ];
+					end
+
+					if isfinite(ineqCons(iter).upperBound)
+						c = [ c; ineqCons(iter).expression - ineqCons(iter).upperBound ];
+					end
+				end
+			else
+				c = ConstantNode.empty;
+			end
+			% Generate the constraint function itself
+			gen = MatlabFunctionGenerator({'var'}, {'c'}, 'feasC');
+			gen.writeHeader
+			gen.writeExpression(c, 'c')
+			gen.writeFooter
+			% Generate the c Jacobian function
+			gen = MatlabFunctionGenerator({'var'}, {'jc'}, 'feasJC');
+			gen.writeHeader
+			[iJ, jJ, sJ] = c.jacobian;
+			gen.writeIndex(iJ, 'iJ')
+			gen.writeIndex(jJ, 'jJ')
+			gen.writeExpression(sJ, 'sJ')
+			fprintf(gen.fid, '\tjc = sparse(iJ, jJ, sJ, %d, %d);\n', nVars, sum([c.length]));
+			gen.writeFooter
 		end
 
 		function solve(this)
@@ -70,25 +101,29 @@ classdef FeasSolver < Solver
 
 			% Initialize saved values
 			ceqVal   = feasCeq(cur_x);
-			meritVal = this.meritFcn(ceqVal);
+			cVal     = feasC(cur_x);
+			meritVal = this.meritFcn(ceqVal, cVal);
 
 			% Optimization main loop
 			for iter = 1:this.maxIter
 				% Evaluate the derivative for use in assembling the LP subproblem
 				jCeq = feasJCeq(cur_x);
+				jC   = feasJC(cur_x);
 
 				% Put together the LP subproblem
 
 				% Objective first. This is just a sum of slack variables
 				objjac = [ zeros(numel(cur_x), 1)
-				           ones(numel(ceqVal), 1) ];
+				           ones(numel(ceqVal)+numel(cVal), 1) ];
 
 				% Put together the slack variable definition constraints
-				A = [ jCeq, -eye(numel(ceqVal))
-				     -jCeq, -eye(numel(ceqVal)) ];
+				A = this.robustVCat([ jCeq, -eye(numel(ceqVal)) ], ...
+				                    [-jCeq, -eye(numel(ceqVal)) ], ...
+				                    [ jC,   -eye(numel(cVal))   ]);
 
 				b = [ -ceqVal
-				       ceqVal ];
+				       ceqVal
+				      -cVal ];
 
 				% Check for corner cases
 				if isempty(b)
@@ -96,12 +131,14 @@ classdef FeasSolver < Solver
 				end
 
 				% Compute the lower bounds. Since the LP is relative, these are shifted with respect
-				% to the real upper and lower bounds. TODO: Add in the bounds on the slack variables...
+				% to the real upper and lower bounds.
 				lp_lb = [ this.nlp.variableLowerBound(:) - cur_x
-				          -inf(numel(ceqVal), 1) ];
+				          -inf(numel(ceqVal), 1)
+				           zeros(numel(cVal), 1) ];
 
 				lp_ub = [ this.nlp.variableUpperBound(:) - cur_x
-				          abs(ceqVal) ];
+				          abs(ceqVal)
+				          max(0, cVal) ];
 
 				% Compute the step and desired objective function decrease
 				[lp_step, desobjchg] = this.callLPSolver(objjac, A, b, lp_lb, lp_ub);
@@ -114,7 +151,8 @@ classdef FeasSolver < Solver
 				while true
 					new_x       = cur_x + slen * step;
 					newCeqVal   = feasCeq(new_x);
-					newMeritVal = this.meritFcn(newCeqVal);
+					newCVal     = feasC(new_x);
+					newMeritVal = this.meritFcn(newCeqVal, newCVal);
 
 					if newMeritVal <= meritVal + slen * desobjchg / 2
 						break
@@ -126,6 +164,7 @@ classdef FeasSolver < Solver
 				% Update the current point and other associated values
 				cur_x    = new_x;
 				ceqVal   = newCeqVal;
+				cVal     = newCVal;
 				meritVal = newMeritVal;
 
 				% Termination check!
@@ -152,8 +191,29 @@ classdef FeasSolver < Solver
 		end
 
 		% Merit function for the optimization.
-		function val = meritFcn(this, ceqVal)
-			val = sum(abs(ceqVal));
+		function val = meritFcn(this, ceqVal, cVal)
+			val = sum(abs(ceqVal)) + sum(max(0, cVal));
+		end
+
+		% Utility function to more robustly perform vertical concatenation
+		% (i.e. it ignores empty matrices)
+		function out = robustVCat(this, varargin)
+			% Compute the width of the output matrix, for initialization
+			width = 0;
+			for iter = 1:numel(varargin)
+				width = max(width, size(varargin{iter}, 2));
+			end
+
+			% Build up the output matrix through input-wise concatenation
+			out = zeros(0, width);
+			for iter = 1:numel(varargin)
+				% Skip empty inputs
+				if isempty(varargin{iter})
+					continue
+				end
+
+				out = [ out; varargin{iter} ];
+			end
 		end
 	end
 
