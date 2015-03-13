@@ -1,11 +1,9 @@
 % COALESCE interface for solving feasibility problems.
 %
 % TODO:
-%     * Termination test.
 %     * Equality constraints
-%     * Line search
 %     * Inequality constraints (other than bounds)
-%     * Robustness
+%     * Robustness (i.e. nonfinite constraint values
 
 classdef FeasSolver < Solver
 	methods
@@ -52,6 +50,9 @@ classdef FeasSolver < Solver
 			% Was the solve successful? This gets set to true if the termination criteria are met.
 			success = false;
 
+			% Initialize saved values
+			meritVal = this.meritFcn(cur_x);
+
 			% Optimization main loop
 			for iter = 1:this.maxIter
 				% TODO: Setup!
@@ -70,9 +71,7 @@ classdef FeasSolver < Solver
 				[step, desobjchg] = this.callLPSolver(objjac, A, b, Aeq, beq, lp_lb, lp_ub);
 
 				% Line search!
-				% TODO: This
-				slen     = 1;
-				meritVal = this.meritFcn(cur_x);
+				slen = 1;
 				while true
 					new_x       = cur_x + slen * step;
 					newMeritVal = this.meritFcn(new_x);
@@ -84,19 +83,15 @@ classdef FeasSolver < Solver
 					slen = slen / 2;
 				end
 
-				% Update the current point
-				cur_x = new_x;
+				% Update the current point and other associated values
+				cur_x    = new_x;
+				meritVal = newMeritVal;
 
 				% Termination check!
-				% TODO: Implement a line search, which will give us the necessary residual norm
-				if iter == this.maxIter
+				if meritVal <= this.tolerance * size(this.nlp.initialGuess)
 					success = true;
 					break
 				end
-				%if resNorm <= this.tolerance * size(this.nlp.initialGuess)
-				%	success = true;
-				%	break
-				%end
 			end
 
 			% Stuff the solution back into the COALESCE problem instance
@@ -110,7 +105,7 @@ classdef FeasSolver < Solver
 
 		% This calls the linear programming solver behind the scenes.
 		% Assumes the initial guess is the zero vector (useful for relative step computation)
-		% TODO: Try different solvers. Gotta' support them all!
+		% This is intended to interface to different LP solvers
 		function [soln,objval] = callLPSolver(this, objjac, A, b, Aeq, beq, lb, ub)
 			[soln,objval] = linprog(objjac, A, b, Aeq, beq, lb, ub, [], this.lpoptions);
 		end
