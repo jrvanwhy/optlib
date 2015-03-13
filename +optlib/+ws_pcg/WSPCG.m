@@ -38,8 +38,9 @@ classdef WSPCG < handle
 		%
 		% Returns:
 		%     x      The approximate solution to the system.
+		%     iter   The number of iterations made
 		%
-		function x = solve(this, MxFcn, b, MDiag, tol, maxIter)
+		function [x,iter] = solve(this, MxFcn, b, MDiag, tol, maxIter)
 			this.upPrecond(MDiag);
 
 			Mres  = b;                   % Residual of the original system
@@ -53,8 +54,10 @@ classdef WSPCG < handle
 			tol = tol * norm(b);
 
 			% Diagnostic information for the user
-			indentStr = repmat(' ', 1, this.dbg_indent);
-			fprintf('\n%sIteration    LBFGSCache    norm(res)    tolerance\n', indentStr)
+			if this.en_dbg
+				indentStr = repmat(' ', 1, this.dbg_indent);
+				fprintf('\n%sIteration    LBFGSCache    norm(res)    tolerance\n', indentStr)
+			end
 
 			% Loop up to N times, where N is the size of the system to be solved.
 			% In exact arithmetic, this would solve it exactly
@@ -88,12 +91,14 @@ classdef WSPCG < handle
 				MresNrm = norm(Mres);
 
 				% Output the diagnostic information
-				fprintf('%s%9u    %10u    %9.3e    %9.3e\n', ...
-				        indentStr,                           ...
-				        size(this.pcache_x, 2),              ...
-				        iter,                                ...
-				        MresNrm,                             ...
-				        tol)
+				if this.en_dbg
+					fprintf('%s%9u    %10u    %9.3e    %9.3e\n', ...
+					        indentStr,                           ...
+					        iter,                                ...
+					        size(this.pcache_x, 2),              ...
+					        MresNrm,                             ...
+					        tol)
+				end
 
 				% Check our termination condition
 				if MresNrm <= tol
@@ -143,8 +148,9 @@ classdef WSPCG < handle
 
 	properties
 		% Configuration parameters
-		lbfgs_mem  = 10; % The maximum size of the LBFGS memory
-		dbg_indent =  0; % Indentation level for diagnostic output
+		lbfgs_mem  = 10   % The maximum size of the LBFGS memory
+		dbg_indent =  0   % Indentation level for diagnostic output
+		en_dbg     = true % Whether or not the debug output is enabled.
 
 		% The preconditioner itself
 		precond

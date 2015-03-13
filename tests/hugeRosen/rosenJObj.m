@@ -1,0 +1,6 @@
+function jobj = rosenJObj(x)
+	x = reshape(x, 1, []);
+	jobj = [ 2 * x(1) + 400 * x(1) * (x(1)^2 - x(2)) - 2,                                          ...
+	         -200*x(1:end-2).^2 + 202*x(2:end-1) - 400*x(2:end-1).*(x(3:end) - x(2:end-1).^2) - 2, ...
+	         200*x(end) - 200*x(end-1)^2 ];
+end

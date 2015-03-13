@@ -7,7 +7,8 @@ classdef WSPcgNwtn < handle
 		% Constructor. Just initializes things.
 		function this = WSPcgNwtn
 			this.ws_pcg            = optlib.ws_pcg.WSPCG;
-			this.ws_pcg.dbg_indent = 4;
+			this.ws_pcg.dbg_indent = 8;
+			this.ws_pcg.en_dbg     = false;
 		end
 
 		% Backtracking linesearch
@@ -51,8 +52,14 @@ classdef WSPcgNwtn < handle
 			% The tolerance for the PCG-based subproblem solver
 			pcg_tol = .1;
 
+			% Diagnostic information for the user
+			indentStr = repmat(' ', 1, this.dbg_indent);
+			if ~this.ws_pcg.en_dbg
+				fprintf('\n%sIteration    objective    norm(jobj)    cg_iters\n', indentStr)
+			end
+
 			% Main loop. We have a maximum iteration limit.
-			for iter = 1:1000
+			for iter = 1:1000000
 				% Compute the Newton system right hand side
 				Nrhs = -jobj_val(:);
 
@@ -64,14 +71,27 @@ classdef WSPcgNwtn < handle
 
 				% Try to solve it. If the solution fails,
 				% just use a steepest descent step.
-				x_step = this.ws_pcg.solve(@(v) hMult(cur_x, v), Nrhs, hDiag(cur_x), pcg_tol, pcg_maxiter);
+				[x_step,cg_iters] = this.ws_pcg.solve(@(v) hMult(cur_x, v), Nrhs, hDiag(cur_x), pcg_tol, pcg_maxiter);
 
 				% Line search!
 				[cur_x, fval, x_step, slen] = this.linesearch_bt(obj, jobj_val, fval, cur_x, x_step);
 
-				% Compute the new jacobian value, then check our termination condition
+				% Compute the new jacobian value for diagnostics and termination checks
 				jobj_new        = jobj(cur_x);
 				jobj_nrmsqr_new = dot(jobj_new, jobj_new);
+
+				% Diagnostic information.
+				if this.ws_pcg.en_dbg
+					fprintf('\n%sIteration    objective    norm(jobj)    cg_iters\n', indentStr)
+				end
+				fprintf('%s%9u    %9.3e    %10.4e    %8u\n', ...
+				        indentStr,                           ...
+				        iter,                                ...
+				        fval,                                ...
+				        sqrt(jobj_nrmsqr_new),               ...
+				        cg_iters);
+
+				% Termination check
 				if jobj_nrmsqr_new < eps
 					soln = cur_x;
 					break
@@ -91,6 +111,7 @@ classdef WSPcgNwtn < handle
 	end
 
 	properties
-		ws_pcg % The warm-startable linear system solver we're using
+		ws_pcg         % The warm-startable linear system solver we're using
+		dbg_indent = 0 % Indentation level for diagnostic output
 	end
 end
