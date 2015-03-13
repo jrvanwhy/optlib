@@ -1,7 +1,4 @@
 % COALESCE interface for solving feasibility problems.
-%
-% TODO:
-%     * Robustness (i.e. nonfinite constraint values)
 
 classdef FeasSolver < Solver
 	methods
@@ -103,6 +100,11 @@ classdef FeasSolver < Solver
 			ceqVal   = feasCeq(cur_x);
 			cVal     = feasC(cur_x);
 			meritVal = this.meritFcn(ceqVal, cVal);
+
+			% Check for failed initial constraint evaluation
+			if ~isfinite(meritVal)
+				error('Initial constraint evaluation failed!')
+			end
 
 			% Optimization main loop
 			for iter = 1:this.maxIter
