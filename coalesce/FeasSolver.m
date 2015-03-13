@@ -12,7 +12,7 @@ classdef FeasSolver < Solver
 			disp('Exporting FeasSolver functions')
 
 			% Clear out old functions so that MATLAB will recognize our new ones
-			clear feasCeq feasJCeq feasC feasJC
+			clear feasCons feasJCons
 
 			% These are used repeatedly later
 			nVars = this.nlp.numberOfVariables;
@@ -24,62 +24,65 @@ classdef FeasSolver < Solver
 			end
 			conIsEq = logical(conIsEq);
 
-			% Generate the equality constraints functions
-			% First, check for a lack of equality constraints -- we need to special case or the referencing will fail
+			% Generate the constraints functions
+			% First, check for a lack of each constraint type constraints -- we need to special case or the referencing will fail
+			if any(~conIsEq)
+				c = vertcat(this.nlp.constraint(~conIsEq).expression);
+			else
+				c = ConstantNode.empty;
+			end
+			ceqShift = []; % Constant value to shift the equality constraints by
 			if any(conIsEq)
-				eqCons = this.nlp.constraint(conIsEq);
-				for iter = 1:nnz(conIsEq)
-					ceq(iter) = eqCons(iter).expression - eqCons(iter).lowerBound;
-				end
+				ceq      = vertcat(this.nlp.constraint(conIsEq).expression);
+				ceqShift = ConstantNode(vertcat(this.nlp.constraint(conIsEq).lowerBound));
 			else
 				ceq = ConstantNode.empty;
 			end
 			% Generate the constraint function itself
-			gen = MatlabFunctionGenerator({'var'}, {'ceq'}, 'feasCeq');
+			gen = MatlabFunctionGenerator({'var'}, {'c', 'ceq'}, 'feasCons');
 			gen.writeHeader
+			gen.writeExpression(c,   'c'  )
 			gen.writeExpression(ceq, 'ceq')
+			if ~isempty(ceqShift)
+				gen.writeExpression(ceqShift, 'ceqShift')
+				fprintf(gen.fid, '\tceq = ceq - ceqShift;\n');
+			end
 			gen.writeFooter
-			% Generate the ceq Jacobian function
-			gen = MatlabFunctionGenerator({'var'}, {'jceq'}, 'feasJCeq');
+			% Generate the Jacobian function
+			gen = MatlabFunctionGenerator({'var'}, {'jc', 'jceq'}, 'feasJCons');
 			gen.writeHeader
+			[iJ,   jJ,   sJ  ] = c.jacobian;
 			[iJeq, jJeq, sJeq] = ceq.jacobian;
+			gen.writeIndex(iJ,   'iJ'  )
+			gen.writeIndex(jJ,   'jJ'  )
 			gen.writeIndex(iJeq, 'iJeq')
 			gen.writeIndex(jJeq, 'jJeq')
+			gen.writeExpression(sJ,   'sJ'  )
 			gen.writeExpression(sJeq, 'sJeq')
-			fprintf(gen.fid, '\tjceq = sparse(iJeq, jJeq, sJeq, %d, %d);\n', nVars, sum([ceq.length]));
+			fprintf(gen.fid, '\tjc   = sparse(iJ,   jJ,   sJ,   %d, %d);\n', sum([c.length]),   nVars);
+			fprintf(gen.fid, '\tjceq = sparse(iJeq, jJeq, sJeq, %d, %d);\n', sum([ceq.length]), nVars);
 			gen.writeFooter
 
-			% Generate the inequality constraints functions. This is similar to the equality constraint export above
-			% First, check for a lack of inequality constraints (again, we need to special case if there are no inequality constraints)
-			if any(~conIsEq)
-				ineqCons = this.nlp.constraint(~conIsEq);
-				c        = [];
-				for iter = 1:nnz(~conIsEq)
-					if isfinite(ineqCons(iter).lowerBound)
-						c = [ c; ineqCons(iter).lowerBound - ineqCons(iter).expression ];
-					end
+			% Go ahead and build the constraint mappings
+			ineqCons = this.nlp.constraint(~conIsEq);
+			curIdx   = 1;
+			for iter = 1:numel(ineqCons)
+				conSize = numel(ineqCons(iter).lowerBound);
 
-					if isfinite(ineqCons(iter).upperBound)
-						c = [ c; ineqCons(iter).expression - ineqCons(iter).upperBound ];
-					end
+				if isfinite(ineqCons(iter).lowerBound)
+					this.cIdxs   = [ this.cIdxs;    curIdx:(curIdx + conSize - 1) ];
+					this.cMults  = [ this.cMults;  -ones(conSize, 1)              ];
+					this.cShifts = [ this.cShifts;  ineqCons(iter).lowerBound     ];
 				end
-			else
-				c = ConstantNode.empty;
+
+				if isfinite(ineqCons(iter).upperBound)
+					this.cIdxs   = [ this.cIdxs;    curIdx:(curIdx + conSize - 1) ];
+					this.cMults  = [ this.cMults;   ones(conSize, 1)              ];
+					this.cShifts = [ this.cShifts; -ineqCons(iter).upperBound     ];
+				end
+
+				curIdx = curIdx + conSize;
 			end
-			% Generate the constraint function itself
-			gen = MatlabFunctionGenerator({'var'}, {'c'}, 'feasC');
-			gen.writeHeader
-			gen.writeExpression(c, 'c')
-			gen.writeFooter
-			% Generate the c Jacobian function
-			gen = MatlabFunctionGenerator({'var'}, {'jc'}, 'feasJC');
-			gen.writeHeader
-			[iJ, jJ, sJ] = c.jacobian;
-			gen.writeIndex(iJ, 'iJ')
-			gen.writeIndex(jJ, 'jJ')
-			gen.writeExpression(sJ, 'sJ')
-			fprintf(gen.fid, '\tjc = sparse(iJ, jJ, sJ, %d, %d);\n', nVars, sum([c.length]));
-			gen.writeFooter
 		end
 
 		function solve(this)
@@ -97,9 +100,8 @@ classdef FeasSolver < Solver
 			success = false;
 
 			% Initialize saved values
-			ceqVal   = feasCeq(cur_x);
-			cVal     = feasC(cur_x);
-			meritVal = this.meritFcn(ceqVal, cVal);
+			[ cVal, ceqVal ] = this.evalCons(cur_x);
+			meritVal         = this.meritFcn(ceqVal, cVal);
 
 			% Check for failed initial constraint evaluation
 			if ~isfinite(meritVal)
@@ -109,8 +111,7 @@ classdef FeasSolver < Solver
 			% Optimization main loop
 			for iter = 1:this.maxIter
 				% Evaluate the derivative for use in assembling the LP subproblem
-				jCeq = feasJCeq(cur_x);
-				jC   = feasJC(cur_x);
+				[ jC, jCeq ] = this.evalJCons(cur_x);
 
 				% Put together the LP subproblem
 
@@ -151,10 +152,9 @@ classdef FeasSolver < Solver
 				% Line search!
 				slen = 1;
 				while true
-					new_x       = cur_x + slen * step;
-					newCeqVal   = feasCeq(new_x);
-					newCVal     = feasC(new_x);
-					newMeritVal = this.meritFcn(newCeqVal, newCVal);
+					new_x                  = cur_x + slen * step;
+					[ newCVal, newCeqVal ] = this.evalCons(new_x);
+					newMeritVal            = this.meritFcn(newCeqVal, newCVal);
 
 					if newMeritVal <= meritVal + slen * desobjchg / 2
 						break
@@ -192,6 +192,30 @@ classdef FeasSolver < Solver
 			[soln,objval] = linprog(objjac, A, b, [], [], lb, ub, [], this.lpoptions);
 		end
 
+		% Function to evaluate the constraints using the generated functions.
+		% This performs the mapping between the COALESCE-generated inequality
+		% expressions and the NLP constraint values
+		function [c, ceq] = evalCons(this, x)
+			% Evaluate the equality constraints and "raw" inequality constraint expressions
+			[rawC, ceq] = feasCons(x);
+
+			% Perform the inequality constraint mapping
+			c = rawC(this.cIdxs) .* this.cMults + this.cShifts;
+		end
+
+		% Similar to evalCons, this evaluates the Jacobians of the constraint functions
+		function [jC, jCeq] = evalJCons(this, x)
+			% Similarly, we start by grabbing the "raw" jacobian
+			[rawJC, jCeq] = feasJCons(x);
+
+			% Again, we need to perform the inequality constraint mapping
+			jCPos = rawJC(this.cIdxs(this.cMults > 0), :);
+			jCNeg = rawJC(this.cIdxs(this.cMults < 0), :);
+			jC    = sparse([], [], [], numel(this.cIdxs), size(jCeq, 2));
+			jC(this.cMults > 0, :) = jCPos;
+			jC(this.cMults < 0, :) = -jCNeg;
+		end
+
 		% Merit function for the optimization.
 		function val = meritFcn(this, ceqVal, cVal)
 			val = sum(abs(ceqVal)) + sum(max(0, cVal));
@@ -226,5 +250,10 @@ classdef FeasSolver < Solver
 
 		% Options for the LP solver
 		lpoptions = optimoptions(@linprog, 'Display', 'off');
+
+		% Mappings for the inequality constraints
+		cIdxs   = [] % Indexes for the inequality constraints
+		cMults  = [] % Signs for the inequality constraints
+		cShifts = [] % Offsets for the inequality constraints (double)
 	end
 end

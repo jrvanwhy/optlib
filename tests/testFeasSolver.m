@@ -67,3 +67,13 @@ optim.export
 optim.solve
 assert(x.solution >= 0)
 assert(x.solution + y.solution <= -1)
+
+%% Test 7:
+clear all
+prob = Nlp;
+x = prob.addVariable(0, -inf, inf, 'Length', 2);
+prob.addConstraint(1, x.initial + x.final, inf);
+optim = FeasSolver(prob);
+optim.export
+optim.solve
+assert(sum(x.solution) >= 1)
