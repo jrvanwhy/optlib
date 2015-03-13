@@ -18,7 +18,24 @@ classdef FeasSolver < Solver
 			% User feedback
 			disp('Exporting FeasSolver functions')
 
-			% TODO...
+			% Identify equality constraints
+			conIsEq = [];
+			for iter = 1:numel(this.nlp.constraint)
+				conIsEq(iter) = all(this.nlp.constraint(iter).lowerBound == this.nlp.constraint(iter).upperBound);
+			end
+			conIsEq = logical(conIsEq);
+
+			% Generate the equality constraints function
+			gen = MatlabFunctionGenerator({'var'}, {'ceq'}, 'feasCeq');
+			gen.writeHeader;
+			% Check for a lack of equality constraints -- we need to special case or the referencing will fail
+			if any(conIsEq)
+				ceq = vertcat(this.nlp.constraint(conIsEq).expression - this.nlp.constraint(conIsEq).lowerBound);
+			else
+				ceq = ConstantNode.empty;
+			end
+			gen.writeExpression(ceq, 'ceq')
+			gen.writeFooter
 		end
 
 		function solve(this)
@@ -54,10 +71,21 @@ classdef FeasSolver < Solver
 
 				% Line search!
 				% TODO: This
-				slen = 1;
+				slen     = 1;
+				meritVal = this.meritFcn(cur_x);
+				while true
+					new_x       = cur_x + slen * step;
+					newMeritVal = this.meritFcn(new_x);
+
+					if newMeritVal <= meritVal + slen * desobjchg / 2
+						break
+					end
+
+					slen = slen / 2;
+				end
 
 				% Update the current point
-				cur_x = cur_x + step;
+				cur_x = new_x;
 
 				% Termination check!
 				% TODO: Implement a line search, which will give us the necessary residual norm
@@ -85,6 +113,11 @@ classdef FeasSolver < Solver
 		% TODO: Try different solvers. Gotta' support them all!
 		function [soln,objval] = callLPSolver(this, objjac, A, b, Aeq, beq, lb, ub)
 			[soln,objval] = linprog(objjac, A, b, Aeq, beq, lb, ub, [], this.lpoptions);
+		end
+
+		% Merit function for the optimization.
+		function val = meritFcn(this, x)
+			val = sum(abs(feasCeq(x)));
 		end
 	end
 
